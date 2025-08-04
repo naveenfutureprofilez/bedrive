@@ -30,6 +30,14 @@ class PublicUploadController extends BaseController
     }
 
     /**
+     * Serve React SPA for public upload page
+     */
+    public function index()
+    {
+        return view('app');
+    }
+
+    /**
      * Upload a file without authentication
      */
     public function store()

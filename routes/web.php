@@ -1,13 +1,14 @@
 <?php
 
 use App\Http\Controllers\LandingPageController;
+use App\Http\Controllers\PublicUploadController;
 use App\Http\Controllers\ShareableLinksController;
 use Common\Core\Controllers\HomeController;
 use Common\Pages\CustomPageController;
 use Illuminate\Support\Facades\Route;
 
 //FRONT-END ROUTES THAT NEED TO BE PRE-RENDERED
-Route::get('/', LandingPageController::class);
+Route::get('/', [PublicUploadController::class, 'index']);
 Route::get('drive/s/{hash}', [ShareableLinksController::class, 'show']);
 
 // TRANSFER ROUTES

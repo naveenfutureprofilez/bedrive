@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import axios from 'axios';
+import * as tus from 'tus-js-client';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Trans } from '@ui/i18n/trans';
 import { UploadIcon } from '@ui/icons/material/Upload';
@@ -10,6 +10,9 @@ import { CopyIcon } from '@ui/icons/material/ContentCopy';
 import { DownloadIcon } from '@ui/icons/material/Download';
 import { LockIcon } from '@ui/icons/material/Lock';
 import { AccessTimeIcon } from '@ui/icons/material/AccessTime';
+import { FolderIcon } from '@ui/icons/material/Folder';
+import { PauseCircleIcon } from '@ui/icons/material/PauseCircle';
+import { PlayCircleIcon } from '@ui/icons/material/PlayCircle';
 
 interface UploadFile {
   file: File;
@@ -55,47 +58,67 @@ export function TransferUploadPage() {
     setFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  const uploadFiles = async () => {
+const uploadFiles = () => {
     if (files.length === 0) return;
 
-    setIsUploading(true);
-    const formData = new FormData();
+setIsUploading(true);
 
-    files.forEach(({ file }) => {
-      formData.append('files[]', file);
-    });
-
-    Object.entries(transferOptions).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        formData.append(key, value.toString());
-      }
-    });
-
-    try {
-      const response = await axios.post('/api/v1/transfer', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        onUploadProgress: (progressEvent) => {
-          const progress = progressEvent.total 
-            ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
-            : 0;
-          setFiles(prev => prev.map(f => ({ ...f, progress, status: 'uploading' })));
-        },
-      });
-
-      setFiles(prev => prev.map(f => ({ ...f, progress: 100, status: 'completed' })));
-      setTransferResult(response.data);
-    } catch (error: any) {
-      console.error('Upload failed:', error);
-      setFiles(prev => prev.map(f => ({
+files.forEach(fileItem => {
+  const upload = new tus.Upload(fileItem.file, {
+    endpoint: '/api/v1/transfer/tus',  // Ensure this endpoint is correctly set
+    metadata: {
+      filename: fileItem.file.name,
+      filetype: fileItem.file.type
+    },
+    onError: error => {
+      console.error('Upload failed:', error)
+      setFiles(prev => prev.map(f => f.id === fileItem.id ? {
         ...f,
         status: 'error',
-        error: error.response?.data?.message || 'Upload failed'
-      })));
-    } finally {
-      setIsUploading(false);
+        error: error.message || 'Upload failed'
+      } : f));
+    },
+    onProgress: (bytesUploaded, bytesTotal) => {
+      const progress = Math.floor((bytesUploaded / bytesTotal) * 100);
+      setFiles(prev => prev.map(f => f.id === fileItem.id ? {
+        ...f,
+        progress,
+        status: 'uploading'
+      } : f));
+    },
+    onSuccess: () => {
+      console.log('Upload finished');
+      setFiles(prev => prev.map(f => f.id === fileItem.id ? {
+        ...f,
+        progress: 100,
+        status: 'completed'
+      } : f));
+      // Save upload ID in localStorage for resuming
+      localStorage.setItem(fileItem.id, upload.url || '');
+      checkIfAllCompleted();
     }
+  });
+
+  upload.start();
+});
+
+function checkIfAllCompleted() {
+  if (files.every(f => f.status === 'completed')) {
+    setTransferResult({
+      message: 'All files uploaded successfully'
+    });
+    setIsUploading(false);
+  }
+}
+
+// This can be extended to handle aggregate progress or any other logic needed
+let aggregateProgressBarInterval = setInterval(() => {
+  const completed = files.filter(f => f.status === 'completed').length;
+  const total = files.length;
+  if (completed === total) {
+    clearInterval(aggregateProgressBarInterval);
+  }
+}, 1000);
   };
 
   const copyToClipboard = async (text: string) => {

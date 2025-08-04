@@ -11,6 +11,7 @@
     "php": ">=8.1",
     "adbario/php-dot-notation": "^3.3",
     "algolia/algoliasearch-client-php": "^3.4",
+    "ankitpokhrel/tus-php": "^2.4",
     "axisofstevil/stop-words": "^1.0",
     "bacon/bacon-qr-code": "^2.0.3",
     "cocur/slugify": "^4.5",
