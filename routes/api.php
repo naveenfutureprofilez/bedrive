@@ -29,6 +29,10 @@ Route::group(['prefix' => 'v1'], function() {
   // TUS UPLOAD ROUTES
   Route::any('transfer/tus/{any?}', [\App\Http\Controllers\TransferController::class, 'tusUpload'])->where('any', '.*');
   
+  // TUS TRANSFER UUID ROUTES
+  Route::get('tus/transfer/{uuid}', [\App\Http\Controllers\TransferController::class, 'showTus']);
+  Route::get('tus/transfer/{uuid}/download/{fileId?}', [\App\Http\Controllers\TransferController::class, 'downloadTusFile']);
+  
   // ADMIN TRANSFER ROUTES (AUTH REQUIRED)
   Route::middleware(['auth', 'isAdmin'])->group(function () {
     Route::get('admin/transfers', [\App\Http\Controllers\AdminTransferController::class, 'index']);

@@ -46,6 +46,8 @@ class RouteServiceProvider extends ServiceProvider
 
         $this->mapWebRoutes();
 
+        $this->mapTusRoutes();
+
         //
     }
 
@@ -76,5 +78,18 @@ class RouteServiceProvider extends ServiceProvider
             ->middleware('api')
             ->namespace($this->namespace)
             ->group(base_path('routes/api.php'));
+    }
+
+    /**
+     * Define the "TUS" routes for the application.
+     *
+     * These routes handle resumable file uploads.
+     *
+     * @return void
+     */
+    protected function mapTusRoutes()
+    {
+        Route::middleware(['web', 'cors'])
+            ->group(base_path('routes/tus.php'));
     }
 }

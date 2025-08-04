@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Carbon;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
+use App\Models\TransferFile;
+use Illuminate\Support\Facades\URL;
 
 class TransferController extends BaseController
 {
@@ -170,6 +172,62 @@ class TransferController extends BaseController
                 'file_count' => count($files),
             ], 201);
         });
+    }
+
+/**
+     * Show TUS transfer details
+     */
+    public function showTus(string $uuid)
+    {
+        $transfer = Transfer::where('uuid', $uuid)->with('transferFiles')->firstOrFail();
+        
+        if ($transfer->isExpired()) {
+            abort(410, 'Transfer has expired');
+        }
+
+        return $this->success([
+            'transfer' => $transfer,
+            'files' => $transfer->transferFiles,
+            'download_url' => url("t/{$uuid}/download"),
+            'expires_at' => $transfer->expiry_at->toISOString(),
+            'is_password_protected' => $transfer->isPasswordProtected(),
+            'download_count' => $transfer->download_count,
+            'total_size' => $transfer->total_size,
+        ]);
+    }
+    
+    /**
+     * Download transfer file by ID
+     */
+    public function downloadTusFile($uuid, $fileId = null)
+    {
+        $transfer = Transfer::where('uuid', $uuid)->firstOrFail();
+
+        if (!$transfer->isAccessible()) {
+            abort(403, 'Transfer expired or download limit reached');
+        }
+
+        if ($transfer->isPasswordProtected() && !$this->request->hasValidSignature()) {
+            abort(403, 'This transfer is protected by a password');
+        }
+
+        // Increment download count
+        $transfer->incrementDownloadCount();
+
+        $file = $fileId ? $transfer->transferFiles()->where('id', $fileId)->firstOrFail() : null;
+
+        if ($file) {
+            try {
+                $disk = Storage::disk(config('tus.disk', 'uploads'));
+                if ($disk->exists($file->storage_path)) {
+                    return $disk->download($file->storage_path, $file->original_name);
+                }
+            } catch (FileNotFoundException $e) {
+                abort(404, 'File not found');
+            }
+        }
+
+        abort(404, 'File not found in this transfer');
     }
 
     /**

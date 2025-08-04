@@ -15,6 +15,10 @@ Route::get('drive/s/{hash}', [ShareableLinksController::class, 'show']);
 Route::get('transfer', [HomeController::class, 'render'])->name('transfer.upload');
 Route::get('transfer/{hash}', [HomeController::class, 'render'])->name('transfer.show');
 
+// TUS TRANSFER ROUTES
+Route::get('t/{uuid}', [HomeController::class, 'render'])->name('tus.transfer.show');
+Route::get('t/{uuid}/download/{fileId?}', [HomeController::class, 'render'])->name('transfer.download');
+
 Route::get('contact', [HomeController::class, 'render']);
 Route::get('pages/{slugOrId}', [CustomPageController::class, 'show']);
 Route::get('login', [HomeController::class, 'render'])->name('login');
