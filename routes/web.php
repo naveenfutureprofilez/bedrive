@@ -10,6 +10,10 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', LandingPageController::class);
 Route::get('drive/s/{hash}', [ShareableLinksController::class, 'show']);
 
+// TRANSFER ROUTES
+Route::get('transfer', [HomeController::class, 'render'])->name('transfer.upload');
+Route::get('transfer/{hash}', [HomeController::class, 'render'])->name('transfer.show');
+
 Route::get('contact', [HomeController::class, 'render']);
 Route::get('pages/{slugOrId}', [CustomPageController::class, 'show']);
 Route::get('login', [HomeController::class, 'render'])->name('login');

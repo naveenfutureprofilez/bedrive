@@ -17,6 +17,27 @@ use Illuminate\Support\Facades\Route;
 
 // prettier-ignore
 Route::group(['prefix' => 'v1'], function() {
+  // PUBLIC FILE TRANSFER ROUTES (NO AUTH REQUIRED)
+  Route::post('transfer', [\App\Http\Controllers\TransferController::class, 'store']);
+  Route::get('transfer/{hash}', [\App\Http\Controllers\TransferController::class, 'show']);
+  Route::post('transfer/{hash}/verify-password', [\App\Http\Controllers\TransferController::class, 'verifyPassword']);
+  Route::get('transfer/{hash}/download', [\App\Http\Controllers\TransferController::class, 'downloadAll']);
+  Route::get('transfer/{hash}/file/{fileId}/download', [\App\Http\Controllers\TransferController::class, 'downloadFile']);
+  Route::get('transfer/{hash}/file/{fileId}/preview', [\App\Http\Controllers\TransferController::class, 'preview']);
+  Route::delete('transfer/{hash}', [\App\Http\Controllers\TransferController::class, 'destroy']);
+  
+  // TUS UPLOAD ROUTES
+  Route::any('transfer/tus/{any?}', [\App\Http\Controllers\TransferController::class, 'tusUpload'])->where('any', '.*');
+  
+  // ADMIN TRANSFER ROUTES (AUTH REQUIRED)
+  Route::middleware(['auth', 'isAdmin'])->group(function () {
+    Route::get('admin/transfers', [\App\Http\Controllers\AdminTransferController::class, 'index']);
+    Route::get('admin/transfers/{transfer}', [\App\Http\Controllers\AdminTransferController::class, 'show']);
+    Route::delete('admin/transfers/{transferIds}', [\App\Http\Controllers\AdminTransferController::class, 'destroy']);
+    Route::get('admin/transfers/analytics', [\App\Http\Controllers\AdminTransferController::class, 'analytics']);
+    Route::post('admin/transfers/cleanup', [\App\Http\Controllers\AdminTransferController::class, 'cleanup']);
+  });
+  
   Route::group(['middleware' => ['optionalAuth:sanctum', 'verified', 'verifyApiAccess']], function () {
     // SHARING
     Route::post('file-entries/{fileEntry}/share', [
