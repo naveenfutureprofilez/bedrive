@@ -13,6 +13,7 @@ import {checkoutRoutes} from '@common/billing/checkout/routes/checkout-routes';
 import {billingPageRoutes} from '@common/billing/billing-page/routes/billing-page-routes';
 import {commonRoutes} from '@common/core/common-routes';
 import {adminRoutes} from '@common/admin/routes/admin-routes';
+import {DownloadPage} from '@app/download/download-page';
 
 export const appRouter = createBrowserRouter(
   [
@@ -40,6 +41,10 @@ export const appRouter = createBrowserRouter(
         ...checkoutRoutes,
         ...billingPageRoutes,
         ...commonRoutes,
+        {
+          path: 'd/:slug',
+          element: <DownloadPage />,
+        },
         {
           path: 'api-docs',
           loader: () =>

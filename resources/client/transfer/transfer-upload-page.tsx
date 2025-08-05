@@ -6,13 +6,14 @@ import { Trans } from '@ui/i18n/trans';
 import { UploadIcon } from '@ui/icons/material/Upload';
 import { CloseIcon } from '@ui/icons/material/Close';
 import { CheckIcon } from '@ui/icons/material/Check';
-import { CopyIcon } from '@ui/icons/material/ContentCopy';
+import { ContentCopyIcon } from '@ui/icons/material/ContentCopy';
 import { DownloadIcon } from '@ui/icons/material/Download';
 import { LockIcon } from '@ui/icons/material/Lock';
 import { AccessTimeIcon } from '@ui/icons/material/AccessTime';
 import { FolderIcon } from '@ui/icons/material/Folder';
 import { PauseCircleIcon } from '@ui/icons/material/PauseCircle';
 import { PlayCircleIcon } from '@ui/icons/material/PlayCircle';
+import { LazyImagePreview } from '../components/LazyImagePreview';
 
 interface UploadFile {
   file: File;
@@ -24,6 +25,7 @@ interface UploadFile {
 
 interface TransferOptions {
   password?: string;
+  passwordProtect?: boolean;
   expiresInDays?: number;
   maxDownloads?: number;
 }
@@ -58,67 +60,92 @@ export function TransferUploadPage() {
     setFiles(prev => prev.filter(f => f.id !== id));
   };
 
-const uploadFiles = () => {
+const uploadFiles = async () => {
     if (files.length === 0) return;
 
-setIsUploading(true);
+    // Validate password if protection is enabled
+    if (transferOptions.passwordProtect && !transferOptions.password) {
+      alert('Please enter a password to protect this transfer.');
+      return;
+    }
 
-files.forEach(fileItem => {
-  const upload = new tus.Upload(fileItem.file, {
-    endpoint: '/api/v1/transfer/tus',  // Ensure this endpoint is correctly set
-    metadata: {
-      filename: fileItem.file.name,
-      filetype: fileItem.file.type
-    },
-    onError: error => {
-      console.error('Upload failed:', error)
-      setFiles(prev => prev.map(f => f.id === fileItem.id ? {
+    setIsUploading(true);
+
+    try {
+      // Create FormData for multipart upload
+      const formData = new FormData();
+      
+      // Add all files
+      files.forEach(fileItem => {
+        formData.append('files[]', fileItem.file);
+      });
+      
+      // Add transfer options
+      if (transferOptions.passwordProtect && transferOptions.password) {
+        formData.append('password_protect', 'true');
+        formData.append('password', transferOptions.password);
+      }
+      
+      formData.append('expires_in_days', (transferOptions.expiresInDays || 7).toString());
+      
+      if (transferOptions.maxDownloads) {
+        formData.append('max_downloads', transferOptions.maxDownloads.toString());
+      }
+
+      // Upload with progress tracking
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const progress = Math.round((e.loaded / e.total) * 100);
+          // Update all files progress equally for simplicity
+          setFiles(prev => prev.map(f => ({
+            ...f,
+            progress,
+            status: progress === 100 ? 'completed' : 'uploading'
+          })));
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 201) {
+          const response = JSON.parse(xhr.responseText);
+          setTransferResult({
+            ...response.transfer,
+            share_url: response.share_url,
+            download_url: response.download_url,
+            expires_at: response.expiry_at,
+            total_size: response.total_size,
+            file_count: response.file_count
+          });
+          setFiles(prev => prev.map(f => ({ ...f, status: 'completed', progress: 100 })));
+        } else {
+          throw new Error(`Upload failed with status ${xhr.status}`);
+        }
+        setIsUploading(false);
+      });
+
+      xhr.addEventListener('error', () => {
+        setFiles(prev => prev.map(f => ({
+          ...f,
+          status: 'error',
+          error: 'Upload failed'
+        })));
+        setIsUploading(false);
+      });
+
+      xhr.open('POST', '/api/v1/transfer');
+      xhr.send(formData);
+      
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setFiles(prev => prev.map(f => ({
         ...f,
         status: 'error',
-        error: error.message || 'Upload failed'
-      } : f));
-    },
-    onProgress: (bytesUploaded, bytesTotal) => {
-      const progress = Math.floor((bytesUploaded / bytesTotal) * 100);
-      setFiles(prev => prev.map(f => f.id === fileItem.id ? {
-        ...f,
-        progress,
-        status: 'uploading'
-      } : f));
-    },
-    onSuccess: () => {
-      console.log('Upload finished');
-      setFiles(prev => prev.map(f => f.id === fileItem.id ? {
-        ...f,
-        progress: 100,
-        status: 'completed'
-      } : f));
-      // Save upload ID in localStorage for resuming
-      localStorage.setItem(fileItem.id, upload.url || '');
-      checkIfAllCompleted();
+        error: (error as Error).message || 'Upload failed'
+      })));
+      setIsUploading(false);
     }
-  });
-
-  upload.start();
-});
-
-function checkIfAllCompleted() {
-  if (files.every(f => f.status === 'completed')) {
-    setTransferResult({
-      message: 'All files uploaded successfully'
-    });
-    setIsUploading(false);
-  }
-}
-
-// This can be extended to handle aggregate progress or any other logic needed
-let aggregateProgressBarInterval = setInterval(() => {
-  const completed = files.filter(f => f.status === 'completed').length;
-  const total = files.length;
-  if (completed === total) {
-    clearInterval(aggregateProgressBarInterval);
-  }
-}, 1000);
   };
 
   const copyToClipboard = async (text: string) => {
@@ -204,7 +231,7 @@ let aggregateProgressBarInterval = setInterval(() => {
                       onClick={() => copyToClipboard(transferResult.share_url)}
                       className="px-4 py-3 bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                     >
-                      <CopyIcon className="w-4 h-4" />
+                      <ContentCopyIcon className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -337,12 +364,26 @@ let aggregateProgressBarInterval = setInterval(() => {
                         exit={{ x: 20, opacity: 0 }}
                         className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border"
                       >
-                        <div className="flex-1 min-w-0 mr-4">
-                          <div className="font-medium text-gray-900 truncate">
-                            {fileItem.file.name}
+                        <div className="flex items-center space-x-3 flex-1 min-w-0 mr-4">
+                          {/* File Preview */}
+                          <div className="flex-shrink-0">
+                            <LazyImagePreview
+                              file={fileItem.file}
+                              className="w-12 h-12"
+                              maxWidth={48}
+                              maxHeight={48}
+                              showFallback={true}
+                            />
                           </div>
-                          <div className="text-sm text-gray-500">
-                            {formatBytes(fileItem.file.size)}
+                          
+                          {/* File Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">
+                              {fileItem.file.name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {formatBytes(fileItem.file.size)}
+                            </div>
                           </div>
                         </div>
                         
@@ -417,20 +458,35 @@ let aggregateProgressBarInterval = setInterval(() => {
                       exit={{ height: 0, opacity: 0 }}
                       className="space-y-4 p-6 bg-gray-50 rounded-xl"
                     >
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {/* Password Protection Section */}
+                      <div className="col-span-full mb-4">
+                        <div className="flex items-center mb-2">
+                          <input
+                            id="password-protect"
+                            type="checkbox"
+                            onChange={() => setTransferOptions(prev => ({ ...prev, passwordProtect: !prev.passwordProtect }))}
+                            checked={transferOptions.passwordProtect || false}
+                            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                          <label htmlFor="password-protect" className="ml-2 text-sm font-medium text-gray-700">
                             <LockIcon className="w-4 h-4 inline mr-1" />
                             <Trans message="Password Protection" />
                           </label>
+                        </div>
+                        {transferOptions.passwordProtect && (
                           <input
                             type="password"
-                            placeholder="Optional password"
+                            placeholder="Enter password"
                             value={transferOptions.password || ''}
-                            onChange={(e) => setTransferOptions(prev => ({ ...prev, password: e.target.value }))}
+onChange={(e) => setTransferOptions(prev => ({ ...prev, password: e.target.value }))}
+minLength={1}
+maxLength={128}
+required
                             className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
-                        </div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
                             <AccessTimeIcon className="w-4 h-4 inline mr-1" />
@@ -454,7 +510,6 @@ let aggregateProgressBarInterval = setInterval(() => {
                 </AnimatePresence>
               </motion.div>
             )}
-
             {/* Upload Button */}
             {files.length > 0 && (
               <motion.div

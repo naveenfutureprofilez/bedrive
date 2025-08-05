@@ -5,11 +5,13 @@ namespace App\Providers;
 use App\Listeners\AttachUsersToNewlyUploadedFile;
 use App\Listeners\DeleteShareableLinks;
 use App\Listeners\FolderTotalSizeSubscriber;
+use App\Listeners\GenerateThumbnailListener;
 use App\Listeners\HandleDeletedWorkspace;
 use App\Listeners\HydrateUserWithSampleDriveContents;
 use Common\Auth\Events\UserCreated;
 use Common\Files\Events\FileEntriesDeleted;
 use Common\Files\Events\FileEntryCreated;
+use Common\Files\Events\FileUploaded;
 use Common\Notifications\SubscribeUserToNotifications;
 use Common\Workspaces\Events\WorkspaceDeleted;
 use Common\Workspaces\Listeners\AttachWorkspaceToUser;
@@ -20,9 +22,13 @@ use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvi
 
 class EventServiceProvider extends ServiceProvider
 {
-    protected $listen = [
+protected $listen = [
+        \App\Events\TransferCreated::class => [],
+        \App\Events\TransferDownloaded::class => [],
+        \App\Events\TransferDeleted::class => [],
         FileEntryCreated::class => [AttachUsersToNewlyUploadedFile::class],
         FileEntriesDeleted::class => [DeleteShareableLinks::class],
+        FileUploaded::class => [GenerateThumbnailListener::class],
 
         WorkspaceDeleted::class => [HandleDeletedWorkspace::class],
 

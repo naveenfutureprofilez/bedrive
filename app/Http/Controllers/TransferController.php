@@ -45,16 +45,18 @@ class TransferController extends BaseController
     {
         $this->validate($this->request, [
             'files' => 'required|array',
-            'expires_at' => 'nullable|date',
+            'expiry_at' => 'nullable|date',
             'password' => 'nullable|string',
         ]);
 
-        $transfer = Transfer::create([
+        $transfer = new Transfer([
             'hash' => Transfer::generateUniqueHash(),
-            'expires_at' => $this->request->input('expires_at') ?? now()->addDays(7),
-            'password' => $this->request->input('password'),
-            'is_password_protected' => $this->request->has('password'),
+            'expiry_at' => $this->request->input('expiry_at') ?? now()->addDays(7),
         ]);
+        
+        // Set password with bcrypt hashing
+        $transfer->setPassword($this->request->input('password'));
+        $transfer->save();
 
         foreach ($this->request->file('files') as $file) {
             $payload = new FileEntryPayload([
@@ -100,9 +102,10 @@ class TransferController extends BaseController
             'recipient_emails' => 'nullable|array',
             'recipient_emails.*' => 'email',
             'message' => 'nullable|string|max:1000',
-            'password' => 'nullable|string|min:6',
+            'password' => 'required_if:password_protect,true|string|min:1|max:128',
             'expires_in_days' => 'nullable|integer|min:1|max:30',
             'max_downloads' => 'nullable|integer|min:1',
+            'password_protect' => 'nullable|boolean',
         ]);
 
         return DB::transaction(function () {
@@ -113,14 +116,20 @@ class TransferController extends BaseController
                 'sender_name' => $this->request->input('sender_name'),
                 'recipient_emails' => $this->request->input('recipient_emails'),
                 'message' => $this->request->input('message'),
-                'password' => $this->request->input('password') ? Hash::make($this->request->input('password')) : null,
-                'expires_at' => now()->addDays($this->request->input('expires_in_days', 7)),
+'expiry_at' => now()->addDays($this->request->input('expires_in_days', 7)),
                 'max_downloads' => $this->request->input('max_downloads'),
-                'is_password_protected' => $this->request->has('password'),
                 'ip_address' => $this->request->ip(),
                 'user_agent' => $this->request->userAgent(),
                 'status' => 'pending',
             ]);
+            
+            // Set password with bcrypt hashing
+            if ($this->request->input('password_protect', false)) {
+                $transfer->setPassword($this->request->input('password'));
+            } else {
+                $transfer->setPassword(null);
+            }
+            $transfer->save();
 
             $totalSize = 0;
             $files = [];
@@ -163,11 +172,14 @@ class TransferController extends BaseController
                 'status' => 'completed'
             ]);
 
+            // Emit created event for Horizon and Telescope
+            event(new \App\Events\TransferCreated($transfer));
+
             return $this->success([
                 'transfer' => $transfer->load('files'),
                 'share_url' => url("transfer/{$transfer->hash}"),
                 'download_url' => url("api/v1/transfer/{$transfer->hash}/download"),
-                'expires_at' => $transfer->expires_at->toISOString(),
+'expiry_at' => $transfer->expiry_at->toISOString(),
                 'total_size' => $totalSize,
                 'file_count' => count($files),
             ], 201);
@@ -189,7 +201,7 @@ class TransferController extends BaseController
             'transfer' => $transfer,
             'files' => $transfer->transferFiles,
             'download_url' => url("t/{$uuid}/download"),
-            'expires_at' => $transfer->expiry_at->toISOString(),
+            'expiry_at' => $transfer->expiry_at->toISOString(),
             'is_password_protected' => $transfer->isPasswordProtected(),
             'download_count' => $transfer->download_count,
             'total_size' => $transfer->total_size,
@@ -245,10 +257,50 @@ class TransferController extends BaseController
             'transfer' => $transfer,
             'files' => $transfer->files,
             'download_url' => url("api/v1/transfer/{$hash}/download"),
-            'expires_at' => $transfer->expires_at->toISOString(),
+            'expiry_at' => $transfer->expiry_at->toISOString(),
             'is_password_protected' => $transfer->is_password_protected,
             'download_count' => $transfer->download_count,
             'total_size' => $transfer->total_size,
+        ]);
+    }
+
+    /**
+     * Get transfer metadata by UUID
+     * Returns file list, sizes, expiry, password_protected flag
+     */
+    public function getMetadata(string $uuid)
+    {
+        $transfer = Transfer::where('uuid', $uuid)->with(['files', 'transferFiles'])->firstOrFail();
+        
+        if ($transfer->isExpired()) {
+            abort(410, 'Transfer has expired');
+        }
+
+        // Get files based on transfer type (legacy or TUS)
+        $files = $transfer->files->isNotEmpty() ? $transfer->files : $transfer->transferFiles;
+        
+        $fileList = $files->map(function ($file) {
+            return [
+                'id' => $file->id,
+                'name' => $file->name ?? $file->original_name ?? 'Unknown',
+                'size' => $file->size ?? $file->file_size ?? 0,
+                'mime' => $file->mime ?? $file->mime_type ?? 'application/octet-stream',
+                'extension' => $file->extension ?? pathinfo($file->name ?? '', PATHINFO_EXTENSION),
+            ];
+        });
+
+        return $this->success([
+            'uuid' => $transfer->uuid,
+            'hash' => $transfer->hash,
+            'files' => $fileList,
+            'file_count' => $files->count(),
+            'total_size' => $transfer->total_size,
+            'expiry_at' => $transfer->expiry_at ? $transfer->expiry_at->toISOString() : null,
+            'password_protected' => $transfer->isPasswordProtected(),
+            'download_count' => $transfer->download_count,
+            'max_downloads' => $transfer->max_downloads,
+            'status' => $transfer->status,
+            'created_at' => $transfer->created_at->toISOString(),
         ]);
     }
 
@@ -263,13 +315,20 @@ class TransferController extends BaseController
 
         $transfer = Transfer::where('hash', $hash)->firstOrFail();
         
-        if (!$transfer->is_password_protected) {
+        if (!$transfer->isPasswordProtected()) {
             return $this->success(['message' => 'Transfer is not password protected']);
         }
 
-        if (!Hash::check($this->request->input('password'), $transfer->password)) {
+        if (!$transfer->verifyPassword($this->request->input('password'))) {
             return response()->json(['message' => 'Invalid password'], 401);
         }
+
+        // Store password verification in session
+        $sessionKey = 'transfer_password_verified_' . $hash;
+        $this->request->session()->put($sessionKey, [
+            'verified_at' => now(),
+            'expiry_at' => now()->addHours(24),
+        ]);
 
         // Generate signed URL for access
         $signedUrl = URL::temporarySignedRoute(
@@ -280,7 +339,8 @@ class TransferController extends BaseController
 
         return $this->success([
             'message' => 'Password verified',
-            'access_token' => $signedUrl,
+            'token' => $signedUrl,
+            'session_token' => $sessionKey,
         ]);
     }
 
@@ -291,7 +351,7 @@ class TransferController extends BaseController
     {
         $transfer = Transfer::where('hash', $hash)->with('files')->firstOrFail();
 
-        if (!$transfer->isAccessible()) {
+        if (!$transfer->isAccessible() || ($transfer->isPasswordProtected() && !$this->request->session()->has('transfer_verified_' . $transfer->hash))) {
             abort(403, 'Transfer expired or download limit reached');
         }
 
@@ -340,7 +400,10 @@ class TransferController extends BaseController
         }
 
         // Increment download count
-        $transfer->incrementDownloadCount();
+$transfer->incrementDownloadCount();
+
+        // Emit downloaded event for Horizon and Telescope
+        event(new \App\Events\TransferDownloaded($transfer));
 
         try {
             return $response->create($fileEntry);
@@ -389,6 +452,9 @@ class TransferController extends BaseController
         }
         
         // Delete transfer and its files
+// Emit deleted event for Horizon and Telescope
+        event(new \App\Events\TransferDeleted($transfer));
+
         $transfer->delete();
 
         return $this->success(['message' => 'Transfer deleted successfully']);

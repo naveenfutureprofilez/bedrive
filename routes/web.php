@@ -19,6 +19,9 @@ Route::get('transfer/{hash}', [HomeController::class, 'render'])->name('transfer
 Route::get('t/{uuid}', [HomeController::class, 'render'])->name('tus.transfer.show');
 Route::get('t/{uuid}/download/{fileId?}', [HomeController::class, 'render'])->name('transfer.download');
 
+// DOWNLOAD PAGE ROUTES
+Route::get('d/{slug}', [HomeController::class, 'render'])->name('download.page');
+
 Route::get('contact', [HomeController::class, 'render']);
 Route::get('pages/{slugOrId}', [CustomPageController::class, 'show']);
 Route::get('login', [HomeController::class, 'render'])->name('login');

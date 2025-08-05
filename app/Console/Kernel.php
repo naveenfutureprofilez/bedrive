@@ -10,11 +10,15 @@ use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
 class Kernel extends ConsoleKernel
 {
-    protected $commands = [DeleteExpiredLinks::class];
+protected $commands = [
+        DeleteExpiredLinks::class,
+        \App\Console\Commands\DeleteExpiredTransfers::class,
+    ];
 
     protected function schedule(Schedule $schedule)
     {
         $schedule->command(DeleteExpiredLinks::class)->everyMinute();
+        $schedule->command('transfers:cleanup --force')->daily();
 
         if (config('common.site.demo')) {
             $schedule->command(CleanDemoSite::class)->daily();

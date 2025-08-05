@@ -1,12 +1,55 @@
 import React from 'react';
 import { Trans } from '@ui/i18n/trans';
-import { CopyIcon } from '@ui/icons/material/ContentCopy';
+import { ContentCopyIcon } from '@ui/icons/material/ContentCopy';
+import { useState } from 'react';
+import { TransferPasswordForm } from './transfer-password-form';
 import { DownloadIcon } from '@ui/icons/material/Download';
+import { LazyImagePreview } from '../components/LazyImagePreview';
 
-export function TransferDownloadPage({ transfer }) {
-  const { file_count, total_size, expires_at, share_url, download_url } = transfer;
+interface TransferFile {
+  hash: string;
+  name: string;
+  size: number;
+  mime: string;
+  extension?: string;
+}
 
-  const copyToClipboard = async (text) => {
+interface Transfer {
+  hash: string;
+  file_count: number;
+  total_size: number;
+  expires_at: string;
+  share_url: string;
+  download_url: string;
+  is_password_protected: boolean;
+  files?: TransferFile[];
+}
+
+interface TransferDownloadPageProps {
+  transfer: Transfer;
+}
+
+export function TransferDownloadPage({ transfer }: TransferDownloadPageProps) {
+  const { file_count, total_size, expires_at, share_url, download_url, is_password_protected } = transfer;
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [accessToken, setAccessToken] = useState(() => {
+    // Check for existing token in session storage
+    return sessionStorage.getItem(`transfer_token_${transfer.hash}`);
+  });
+
+  // Show password modal if transfer is protected and we don't have access token
+  React.useEffect(() => {
+    if (is_password_protected && !accessToken) {
+      setShowPasswordModal(true);
+    }
+  }, [is_password_protected, accessToken]);
+
+  const handlePasswordSuccess = (token: string) => {
+    setAccessToken(token);
+    setShowPasswordModal(false);
+  };
+
+  const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       alert('Copied to clipboard!');
@@ -69,7 +112,7 @@ export function TransferDownloadPage({ transfer }) {
                     onClick={() => copyToClipboard(share_url)}
                     className="px-4 py-3 bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                   >
-                    <CopyIcon className="w-4 h-4" />
+                    <ContentCopyIcon className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -94,6 +137,42 @@ export function TransferDownloadPage({ transfer }) {
                 </div>
               </div>
             </div>
+
+            {/* File List with Previews */}
+            {transfer.files && transfer.files.length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  <Trans message="Files in this transfer" />
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {transfer.files.map((file, index) => (
+                    <div key={file.hash || index} className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors">
+                      <div className="flex flex-col items-center space-y-2">
+                        <LazyImagePreview
+                          file={{
+                            hash: file.hash,
+                            name: file.name,
+                            mime: file.mime,
+                            extension: file.extension,
+                          }}
+                          className="w-full"
+                          maxWidth={200}
+                          maxHeight={150}
+                        />
+                        <div className="text-center w-full">
+                          <div className="text-sm font-medium text-gray-900 truncate" title={file.name}>
+                            {file.name}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {formatBytes(file.size)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -107,11 +186,18 @@ export function TransferDownloadPage({ transfer }) {
           </div>
         </div>
       </div>
+      
+      <TransferPasswordForm
+        transferHash={transfer.hash}
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        onSuccess={handlePasswordSuccess}
+      />
     </div>
   );
 }
 
-const formatBytes = (bytes, decimals = 2) => {
+const formatBytes = (bytes: number, decimals = 2): string => {
   if (bytes === 0) return '0 Bytes';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;

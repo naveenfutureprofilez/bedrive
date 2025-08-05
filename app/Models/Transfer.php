@@ -19,9 +19,7 @@ class Transfer extends Model
         'sender_name',
         'recipient_emails',
         'message',
-        'password',
         'password_hash',
-        'expires_at',
         'expiry_at',
         'download_count',
         'max_downloads',
@@ -35,7 +33,6 @@ class Transfer extends Model
 
     protected $casts = [
         'recipient_emails' => 'json',
-        'expires_at' => 'datetime',
         'expiry_at' => 'datetime',
         'completed_at' => 'datetime',
         'is_password_protected' => 'boolean',
@@ -45,7 +42,7 @@ class Transfer extends Model
     ];
 
     protected $dates = [
-        'expires_at',
+        'expiry_at',
         'created_at',
         'updated_at',
         'deleted_at'
@@ -72,7 +69,8 @@ class Transfer extends Model
      */
     public function isExpired(): bool
     {
-        return $this->expires_at && $this->expires_at->isPast();
+        $expiryDate = $this->expiry_at;
+        return $expiryDate && $expiryDate->isPast();
     }
 
     /**
@@ -138,8 +136,8 @@ class Transfer extends Model
      */
     public function scopeActive($query)
     {
-        return $query->where('expires_at', '>', now())
-                    ->orWhereNull('expires_at');
+        return $query->where('expiry_at', '>', now())
+                    ->orWhereNull('expiry_at');
     }
 
     /**
@@ -147,7 +145,9 @@ class Transfer extends Model
      */
     public function scopeExpired($query)
     {
-        return $query->where('expires_at', '<=', now());
+        return $query->where(function($q) {
+            $q->where('expiry_at', '<=', now());
+        });
     }
 
     /**
@@ -184,6 +184,20 @@ class Transfer extends Model
         }
         
         return \Illuminate\Support\Facades\Hash::check($password, $this->password_hash);
+    }
+
+    /**
+     * Set password with bcrypt hashing
+     */
+    public function setPassword(?string $password): void
+    {
+        if (empty($password)) {
+            $this->password_hash = null;
+            $this->is_password_protected = false;
+        } else {
+            $this->password_hash = \Illuminate\Support\Facades\Hash::make($password);
+            $this->is_password_protected = true;
+        }
     }
 
     /**
